@@ -18,7 +18,7 @@ def charger_modele():
 @st.cache_data
 def charger_catalogue():
     df = preparer_donnees()
-    cols = ["id", "nom", "prix_market"] + FEATURES
+    cols = ["id", "nom", "rarity", "set_name", "prix_market"] + FEATURES
     return df[[c for c in cols if c in df.columns]]
 
 
@@ -38,7 +38,12 @@ if recherche:
         st.error("Carte non trouvée")
     else:
         if len(resultats) > 1:
-            options = resultats["nom"] + " — " + resultats["id"]
+            options = (
+                resultats["nom"] + " — "
+                + resultats["set_name"].fillna("?") + " — "
+                + resultats["rarity"].fillna("?") + " ("
+                + resultats["id"] + ")"
+            )
             choix = st.selectbox(f"{len(resultats)} cartes trouvées", options)
             carte = resultats[options == choix].iloc[0]
         else:
