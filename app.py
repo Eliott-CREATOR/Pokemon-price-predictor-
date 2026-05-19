@@ -123,7 +123,6 @@ with col1:
     rarete = st.selectbox("Rareté", list(RARITY_MAP.keys()), index=3)
     serie = st.selectbox("Série du set", SERIES_SIGNIFICATIVES, index=4)
     type_carte = st.selectbox("Type de carte", list(TYPES_CARTE.keys()), index=0)
-    annee = st.selectbox("Année de sortie", list(range(2026, 1995, -1)), index=0)
     generation = st.selectbox("Génération", list(range(1, 9)), index=0)
 
 with col2:
@@ -154,7 +153,6 @@ if st.button("Prédire le prix", type="primary"):
         "total_damage_attaques": max_dmg,
         "a_attaque_100plus": 1 if max_dmg >= 100 else 0,
         "a_attaque_200plus": 1 if max_dmg >= 200 else 0,
-        "age_du_set":        2026 - annee,
         "generation":        generation,
         "is_holo":           int(is_holo),
         "is_full_art":       int(is_full_art),
