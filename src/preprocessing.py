@@ -3,97 +3,103 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import os
 
-CHEMIN_RAW = "data/raw/cartes_pokemon.csv"
-CHEMIN_PROCESSED = "data/processed/"
+chemin_csv = "../data/raw/cartes_pokemon.csv"
+dossier_output = "../data/processed/"
 
-RARITY_MAP = {
-    "Common": 1, "Uncommon": 2, "Rare": 3,
-    "Rare Holo": 4, "Rare Holo EX": 5, "Rare Holo GX": 5, "Rare Holo V": 5,
+rarete_en_chiffre = {
+    "Common": 1, "Uncommon": 2, "Rare": 3, "Rare Holo": 4,
+    "Rare Holo EX": 5, "Rare Holo GX": 5, "Rare Holo V": 5,
     "Rare Ultra": 6, "Rare Holo VMAX": 6,
     "Rare Secret": 7, "Amazing Rare": 7,
     "Rare Rainbow": 8, "Rare Shining": 8, "Rare Shiny GX": 8, "LEGEND": 8,
 }
-
-FEATURES = [
+colonnes_a_garder = [
     "hp", "retreat_cost", "has_evolution", "generation", "pokedex_number",
-    "carte_age_ans", "set_total_cartes", "position_dans_set",
-    "set_serie_encoded", "supertype_encoded",
-    "rarity_encoded", "est_secret_rare", "est_holo_premium",
+    "age_du_set", "set_total_cartes", "position_dans_set",
+    "set_serie_encode", "supertype_encode",
+    "score_rarete", "est_secret_rare", "holo_x_rarete",
     "is_holo", "is_full_art", "is_v_card", "is_ex_gx",
-    "is_basic", "is_stage1", "is_stage2", "est_full_art_v",
+    "is_basic", "is_stage1", "is_stage2", "full_art_et_v",
     "type_fire", "type_water", "type_grass", "type_lightning",
     "type_psychic", "type_fighting", "type_darkness", "type_metal",
-    "type_dragon", "type_fairy", "type_colorless", "nb_types",
+    "type_dragon", "type_fairy", "type_colorless", "nb_types_total",
     "nb_attaques", "max_damage", "total_damage_attaques",
     "a_attaque_100plus", "a_attaque_200plus",
-    "cout_energie_moyen", "nb_abilities", "has_ability", "efficacite_combat",
-    "standard_encoded", "expanded_encoded", "a_faiblesse", "a_resistance",
+    "cout_energie_moyen", "nb_abilities", "has_ability", "ratio_degats_energie",
+    "legal_en_standard", "legal_en_expanded", "a_faiblesse", "a_resistance",
 ]
-
-
 def preparer_donnees():
-    df = pd.read_csv(CHEMIN_RAW)
+    
+    df = pd.read_csv(chemin_csv)
     print("shape:", df.shape)
-    print(df.head())
 
-   
+    # je garde que les cartes avec un prix
     df = df[df["prix_market"] > 0].copy()
-    print(f"apres filtrage : {len(df)} cartes")
+    print(f"{len(df)} cartes avec un prix")
 
-    
+    # age du set
     annee = pd.to_numeric(df["set_annee"], errors="coerce").fillna(2000)
-    df["carte_age_ans"] = 2026 - annee
+    df["age_du_set"] = 2026 - annee
 
+    # carte secret rare = son numero depasse le total du set
+    numero = pd.to_numeric(df["numero"], errors="coerce")
+    df["est_secret_rare"] = (numero > df["set_total_cartes"]).fillna(False).astype(int)
+
+    # features combat
+    df["ratio_degats_energie"] = df["max_damage"].fillna(0) / (df["cout_energie_moyen"].fillna(1) + 1)
+    df["full_art_et_v"] = df["is_full_art"] * df["is_v_card"]
+
+    # compter le nombre de types
+    cols_types = [c for c in df.columns if c.startswith("type_")]
+    df["nb_types_total"] = df[cols_types].sum(axis=1)
+
+    # encodage des colonnes texte
+    df["score_rarete"] = df["rarity"].map(rarete_en_chiffre).fillna(3)
+    df["holo_x_rarete"] = df["is_holo"] * df["score_rarete"] 
+       
+    # one-hot encoding pour supertype, pas de hierarchie entre pokemon trainer energy 
+    dummies = pd.get_dummies(df["supertype"], prefix="supertype")
+    df = pd.concat([df, dummies], axis=1)
     
-    numero_num = pd.to_numeric(df["numero"], errors="coerce")
-    df["est_secret_rare"] = (
-        numero_num > df["set_total_cartes"]
-    ).fillna(False).astype(int)
-
-    df["efficacite_combat"] = (
-        df["max_damage"].fillna(0) / (df["cout_energie_moyen"].fillna(1) + 1)
-    )
-    df["est_full_art_v"] = df["is_full_art"] * df["is_v_card"]
-    cols_types = [c for c in df.columns if c.startswith("type_") and df[c].dtype != object]
-    df["nb_types"] = df[cols_types].sum(axis=1)
-
-   
-    df["rarity_encoded"] = df["rarity"].map(RARITY_MAP).fillna(3)
-    df["est_holo_premium"] = df["is_holo"] * df["rarity_encoded"]
-    df["supertype_encoded"] = pd.Categorical(df["supertype"]).codes
-    df["set_serie_encoded"] = pd.Categorical(df["set_serie"]).codes
-    df["standard_encoded"] = (df["legal_standard"] == "Legal").astype(int)
-    df["expanded_encoded"] = (df["legal_expanded"] == "Legal").astype(int)
+    # encodgae des series de cartes 
+    df["set_serie_encode"] = pd.Categorical(df["set_serie"]).codes #demander aux profs pour ça 
+    df["legal_en_standard"] = (df["legal_standard"] == "Legal").astype(int)
+    df["legal_en_expanded"] = (df["legal_expanded"] == "Legal").astype(int)
     df["a_faiblesse"] = df["faiblesse"].notna().astype(int)
     df["a_resistance"] = df["resistance"].notna().astype(int)
 
-    
-    medians = {c: df[c].median() for c in ["hp", "position_dans_set", "set_total_cartes"]}
-    df = df.fillna({
-        **medians,
-        "generation": -1, "pokedex_number": -1,
-        "max_damage": 0, "total_damage_attaques": 0,
-        "cout_energie_moyen": 0, "efficacite_combat": 0,
-    })
+    # remplir les valeurs manquantes
+    df["hp"] = df["hp"].fillna(df["hp"].median())
+    df["position_dans_set"] = df["position_dans_set"].fillna(df["position_dans_set"].median())
+    df["set_total_cartes"] = df["set_total_cartes"].fillna(df["set_total_cartes"].median())
+    df["generation"] = df["generation"].fillna(-1)
+    df["pokedex_number"] = df["pokedex_number"].fillna(-1)
+    df["max_damage"] = df["max_damage"].fillna(0)
+    df["total_damage_attaques"] = df["total_damage_attaques"].fillna(0)
+    df["cout_energie_moyen"] = df["cout_energie_moyen"].fillna(0)
 
-    return df
+    return df #question sur la taille de la fonction dans le code 
 
+df = preparer_donnees()
 
-if __name__ == "__main__":
-    df = preparer_donnees()
+# le prix est tres skewé donc je prends le log et on vérifie qu'il n'y a pas de bug 
+y = np.log1p(df["prix_market"])
+X = df[colonnes_a_garder]
 
-    
-    y = np.log1p(df["prix_market"])
-    X = df[FEATURES]
-    print(f"\nX : {X.shape}  |  y  min={y.min():.2f}  max={y.max():.2f}  mean={y.mean():.2f}")
+print("X shape:", X.shape)
+print("y min:", round(y.min(), 2), "max:", round(y.max(), 2))
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
+# 80% train 20% test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    os.makedirs(CHEMIN_PROCESSED, exist_ok=True)
-    for nom, data in [("X_train", X_train), ("X_test", X_test),
-                      ("y_train", y_train), ("y_test", y_test)]:
-        data.to_csv(f"{CHEMIN_PROCESSED}{nom}.csv", index=False)
+print("train:", len(X_train), "cartes | test:", len(X_test), "cartes")
 
-    print(f"splits sauvegardes -> train : {len(X_train)}  test : {len(X_test)}")
+# sauvegarde des splits
+os.makedirs(dossier_output, exist_ok=True)
+
+X_train.to_csv(dossier_output + "X_train.csv", index=False)
+X_test.to_csv(dossier_output + "X_test.csv", index=False)
+y_train.to_csv(dossier_output + "y_train.csv", index=False)
+y_test.to_csv(dossier_output + "y_test.csv", index=False)
+
+print("parfait ! les données sont prêtes pour l'entraînement du modèle.")
