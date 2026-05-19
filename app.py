@@ -65,7 +65,7 @@ def predire(features_dict, modele, imputer, medians):
 def expliquer(f, prix, modele):
     imp = dict(zip(FEATURES, modele.feature_importances_))
     total = sum(imp.values())
-    pct = lambda feat: round(imp.get(feat, 0) / total * 100, 1)
+    pct = lambda feat: round(float(imp.get(feat, 0)) / float(total) * 100, 1)
 
     rarity_labels = {1: "Common", 2: "Uncommon", 3: "Rare", 4: "Rare Holo",
                      5: "Rare Holo V/EX/GX", 6: "Rare Ultra/VMAX", 7: "Rare Secret", 8: "Rainbow/Shining"}
