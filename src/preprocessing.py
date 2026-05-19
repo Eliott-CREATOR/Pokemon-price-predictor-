@@ -28,7 +28,8 @@ colonnes_a_garder = [
     "cout_energie_moyen", "nb_abilities", "has_ability", "ratio_degats_energie",
     "legal_en_standard", "legal_en_expanded", "a_faiblesse", "a_resistance",
 ]
-def creer_features(df):
+def creation_features(df):
+    
     annee = pd.to_numeric(df["set_annee"], errors="coerce").fillna(2000)
     df["age_du_set"] = 2026 - annee
 
@@ -83,7 +84,7 @@ def preparer_donnees():
     df = df[df["prix_market"] > 0].copy()
     print(f"{len(df)} cartes avec un prix")
 
-    df = creer_features(df)
+    df = creation_features(df)
     df = encoder(df)
     df = gerer_manquants(df)
     return df
