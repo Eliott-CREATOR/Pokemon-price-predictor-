@@ -16,7 +16,7 @@ rarete_en_chiffre = {
 colonnes_a_garder = [
     "hp", "retreat_cost", "has_evolution", "generation", "pokedex_number",
     "age_du_set", "set_total_cartes", "position_dans_set",
-    "set_serie_encode", "supertype_encode",
+    "set_serie_encode", "supertype_Pokémon", "supertype_Trainer", "supertype_Energy",
     "score_rarete", "est_secret_rare", "holo_x_rarete",
     "is_holo", "is_full_art", "is_v_card", "is_ex_gx",
     "is_basic", "is_stage1", "is_stage2", "full_art_et_v",
@@ -28,16 +28,7 @@ colonnes_a_garder = [
     "cout_energie_moyen", "nb_abilities", "has_ability", "ratio_degats_energie",
     "legal_en_standard", "legal_en_expanded", "a_faiblesse", "a_resistance",
 ]
-def preparer_donnees():
-    
-    df = pd.read_csv(chemin_csv)
-    print("shape:", df.shape)
-
-    # je garde que les cartes avec un prix
-    df = df[df["prix_market"] > 0].copy()
-    print(f"{len(df)} cartes avec un prix")
-
-    # age du set
+def creer_features(df):
     annee = pd.to_numeric(df["set_annee"], errors="coerce").fillna(2000)
     df["age_du_set"] = 2026 - annee
 
@@ -50,25 +41,29 @@ def preparer_donnees():
     df["full_art_et_v"] = df["is_full_art"] * df["is_v_card"]
 
     # compter le nombre de types
-    cols_types = [c for c in df.columns if c.startswith("type_")]
+    cols_types = [c for c in df.columns if c.startswith("type_") and df[c].dtype != object]
     df["nb_types_total"] = df[cols_types].sum(axis=1)
+    return df
 
-    # encodage des colonnes texte
+
+def encoder(df):
     df["score_rarete"] = df["rarity"].map(rarete_en_chiffre).fillna(3)
-    df["holo_x_rarete"] = df["is_holo"] * df["score_rarete"] 
-       
-    # one-hot encoding pour supertype, pas de hierarchie entre pokemon trainer energy 
+    df["holo_x_rarete"] = df["is_holo"] * df["score_rarete"]
+
+    # one-hot encoding pour supertype, pas de hierarchie entre pokemon trainer energy
     dummies = pd.get_dummies(df["supertype"], prefix="supertype")
     df = pd.concat([df, dummies], axis=1)
-    
-    # encodgae des series de cartes 
-    df["set_serie_encode"] = pd.Categorical(df["set_serie"]).codes #demander aux profs pour ça 
+
+    # encodage des series de cartes
+    df["set_serie_encode"] = pd.Categorical(df["set_serie"]).codes #demander aux profs pour ça
     df["legal_en_standard"] = (df["legal_standard"] == "Legal").astype(int)
     df["legal_en_expanded"] = (df["legal_expanded"] == "Legal").astype(int)
     df["a_faiblesse"] = df["faiblesse"].notna().astype(int)
     df["a_resistance"] = df["resistance"].notna().astype(int)
+    return df
 
-    # remplir les valeurs manquantes
+
+def gerer_manquants(df):
     df["hp"] = df["hp"].fillna(df["hp"].median())
     df["position_dans_set"] = df["position_dans_set"].fillna(df["position_dans_set"].median())
     df["set_total_cartes"] = df["set_total_cartes"].fillna(df["set_total_cartes"].median())
@@ -77,8 +72,22 @@ def preparer_donnees():
     df["max_damage"] = df["max_damage"].fillna(0)
     df["total_damage_attaques"] = df["total_damage_attaques"].fillna(0)
     df["cout_energie_moyen"] = df["cout_energie_moyen"].fillna(0)
+    return df
 
-    return df #question sur la taille de la fonction dans le code 
+
+def preparer_donnees():
+    df = pd.read_csv(chemin_csv)
+    print("shape:", df.shape)
+
+    # je garde que les cartes avec un prix
+    df = df[df["prix_market"] > 0].copy()
+    print(f"{len(df)} cartes avec un prix")
+
+    df = creer_features(df)
+    df = encoder(df)
+    df = gerer_manquants(df)
+    return df
+
 
 df = preparer_donnees()
 
