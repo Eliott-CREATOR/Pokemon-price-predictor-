@@ -11,12 +11,8 @@ RARITY_MAP = {
     "Rare Rainbow": 8, "Rare Shining": 8, "Rare Shiny GX": 8, "LEGEND": 8,
 }
 
-SERIES_MAP = {
-    "Base": 0, "Black & White": 1, "Diamond & Pearl": 2, "E-Card": 3,
-    "EX": 4, "Gym": 5, "HeartGold & SoulSilver": 6, "Mega Evolution": 7,
-    "Neo": 9, "Platinum": 12, "Scarlet & Violet": 13,
-    "Sun & Moon": 14, "Sword & Shield": 15, "XY": 16,
-}
+# seules les séries avec signal prix significatif (médiane > $4)
+SERIES_SIGNIFICATIVES = ["NP", "E-Card", "POP", "Other", "Autre (récent)"]
 
 # Basic/Stage1/Stage2/V/VMAX/EX-GX → colonnes correspondantes
 TYPES_CARTE = {
@@ -33,7 +29,8 @@ TYPES_CARTE = {
 FEATURES = [
     "hp", "retreat_cost", "has_evolution", "generation", "pokedex_number",
     "age_du_set", "set_total_cartes", "position_dans_set",
-    "set_serie_encode", "supertype_Pokémon", "supertype_Trainer", "supertype_Energy",
+    "serie_NP", "serie_E-Card", "serie_POP", "serie_Other",
+    "supertype_Pokémon", "supertype_Trainer", "supertype_Energy",
     "score_rarete", "est_secret_rare", "holo_x_rarete",
     "is_holo", "is_full_art", "is_v_card", "is_ex_gx",
     "is_basic", "is_stage1", "is_stage2", "full_art_et_v",
@@ -125,7 +122,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     rarete = st.selectbox("Rareté", list(RARITY_MAP.keys()), index=3)
-    serie = st.selectbox("Série du set", list(SERIES_MAP.keys()), index=12)
+    serie = st.selectbox("Série du set", SERIES_SIGNIFICATIVES, index=4)
     type_carte = st.selectbox("Type de carte", list(TYPES_CARTE.keys()), index=0)
     annee = st.selectbox("Année de sortie", list(range(2026, 1995, -1)), index=0)
     generation = st.selectbox("Génération", list(range(1, 9)), index=0)
@@ -143,10 +140,17 @@ if st.button("Prédire le prix", type="primary"):
     rarity_encoded = RARITY_MAP[rarete]
     type_overrides = TYPES_CARTE[type_carte]
 
+    series_cols = {
+        "serie_NP":     1 if serie == "NP" else 0,
+        "serie_E-Card": 1 if serie == "E-Card" else 0,
+        "serie_POP":    1 if serie == "POP" else 0,
+        "serie_Other":  1 if serie == "Other" else 0,
+    }
+
     features = {
-        "score_rarete":      rarity_encoded,
-        "set_serie_encode":  SERIES_MAP[serie],
-        "hp":                hp,
+        "score_rarete": rarity_encoded,
+        **series_cols,
+        "hp":           hp,
         "max_damage":        max_dmg,
         "total_damage_attaques": max_dmg,
         "a_attaque_100plus": 1 if max_dmg >= 100 else 0,

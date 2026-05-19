@@ -13,10 +13,13 @@ rarete_en_chiffre = {
     "Rare Secret": 7, "Amazing Rare": 7,
     "Rare Rainbow": 8, "Rare Shining": 8, "Rare Shiny GX": 8, "LEGEND": 8,
 }
+SERIES_SIGNIFICATIVES = ["NP", "E-Card", "POP", "Other"]
+
 colonnes_a_garder = [
     "hp", "retreat_cost", "has_evolution", "generation", "pokedex_number",
     "age_du_set", "set_total_cartes", "position_dans_set",
-    "set_serie_encode", "supertype_Pokémon", "supertype_Trainer", "supertype_Energy",
+    "serie_NP", "serie_E-Card", "serie_POP", "serie_Other",
+    "supertype_Pokémon", "supertype_Trainer", "supertype_Energy",
     "score_rarete", "est_secret_rare", "holo_x_rarete",
     "is_holo", "is_full_art", "is_v_card", "is_ex_gx",
     "is_basic", "is_stage1", "is_stage2", "full_art_et_v",
@@ -55,8 +58,9 @@ def encoder(df):
     dummies = pd.get_dummies(df["supertype"], prefix="supertype")
     df = pd.concat([df, dummies], axis=1)
 
-    # encodage des series de cartes
-    df["set_serie_encode"] = pd.Categorical(df["set_serie"]).codes #demander aux profs pour ça
+    # one-hot partiel : seulement les séries avec signal de prix significatif (médiane > $4)
+    for serie in SERIES_SIGNIFICATIVES:
+        df[f"serie_{serie}"] = (df["set_serie"] == serie).astype(int)
     df["legal_en_standard"] = (df["legal_standard"] == "Legal").astype(int)
     df["legal_en_expanded"] = (df["legal_expanded"] == "Legal").astype(int)
     df["a_faiblesse"] = df["faiblesse"].notna().astype(int)
