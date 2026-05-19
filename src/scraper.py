@@ -1,212 +1,245 @@
-
 import requests
 import pandas as pd
 import time
 import os
 
-print("debut du scraping...")
 
-toutes_les_cartes = []
-page = 1
+URL_API = "https://api.pokemontcg.io/v2/cards"
+CHEMIN_SAUVEGARDE = "data/raw/cartes_pokemon.csv"
 
-while True:
-    print(f"je recupere la page {page}...")
-    
-    url = "https://api.pokemontcg.io/v2/cards"
-    params = {
-        "pageSize": 250,
-        "page": page
-    }
-    
-    response = requests.get(url, params=params)
-    
-    if response.status_code != 200:
-        print("erreur avec l'api :", response.status_code)
-        break
-    
-    data = response.json()
-    cartes = data["data"]
-    
-    if len(cartes) == 0:
-        print("plus de cartes, on arrete")
-        break
-    
-    toutes_les_cartes.extend(cartes)
-    print(f"  -> {len(cartes)} cartes recuperees, total : {len(toutes_les_cartes)}")
-    
-    page += 1
-    time.sleep(0.5)
 
-print(f"\ntotal cartes recuperees : {len(toutes_les_cartes)}")
+# Isole le parsing pour ne pas polluer extraire_combat avec du nettoyage de str
+def parser_degats(damage_brut):
+    nettoye = (
+        str(damage_brut)
+        .replace("+", "").replace("x", "").replace("×", "")
+    )
+    return int(nettoye) if nettoye.isdigit() else 0
 
-lignes = []
 
-for carte in toutes_les_cartes:
+# La génération est une feature à part entière, mieux vaut l'isoler
+def calculer_generation(pokedex_num):
+    if not pokedex_num:
+        return None
+    seuils = [
+        (151, 1), (251, 2), (386, 3), (493, 4),
+        (649, 5), (721, 6), (809, 7),
+    ]
+    for seuil, gen in seuils:
+        if pokedex_num <= seuil:
+            return gen
+    return 8
 
-    ligne = {
-        "id":         carte.get("id"),
-        "nom":        carte.get("name"),
-        "supertype":  carte.get("supertype"),
-        "rarity":     carte.get("rarity"),
-        "set_name":   carte.get("set", {}).get("name"),
-        "set_serie":  carte.get("set", {}).get("series"),
-        "set_annee":  carte.get("set", {}).get("releaseDate", "")[:4],
-        "set_total_cartes":   carte.get("set", {}).get("total"),
-        "set_printed_total":  carte.get("set", {}).get("printedTotal"),
-        "numero":     carte.get("number"),
-        "artist":     carte.get("artist"),
-    }
 
-    # --- HP ---
-    try:
-        ligne["hp"] = int(carte.get("hp", 0))
-    except:
-        ligne["hp"] = None
+# Un appel par page pour pouvoir relancer proprement en cas d'erreur réseau
+def recuperer_page(page):
+    params = {"pageSize": 250, "page": page}
+    reponse = requests.get(URL_API, params=params)
+    if reponse.status_code != 200:
+        print(f"erreur API page {page} :", reponse.status_code)
+        return []
+    return reponse.json().get("data", [])
 
-    # --- POKEDEX ET GENERATION ---
-    pokedex = carte.get("nationalPokedexNumbers", [])
-    ligne["pokedex_number"] = pokedex[0] if pokedex else None
 
-    pokedex_num = pokedex[0] if pokedex else None
-    if pokedex_num:
-        if pokedex_num <= 151:   ligne["generation"] = 1
-        elif pokedex_num <= 251: ligne["generation"] = 2
-        elif pokedex_num <= 386: ligne["generation"] = 3
-        elif pokedex_num <= 493: ligne["generation"] = 4
-        elif pokedex_num <= 649: ligne["generation"] = 5
-        elif pokedex_num <= 721: ligne["generation"] = 6
-        elif pokedex_num <= 809: ligne["generation"] = 7
-        else:                    ligne["generation"] = 8
-    else:
-        ligne["generation"] = None
+# Boucle isolée pour pouvoir tester sans relancer tout le script
+def recuperer_toutes_les_cartes():
+    print("debut du scraping...")
+    toutes_les_cartes = []
+    page = 1
 
-    # --- TYPES EN BOOLEENS ---
+    while True:
+        print(f"je recupere la page {page}...")
+        cartes = recuperer_page(page)
+
+        if not cartes:
+            print("plus de cartes, on arrete")
+            break
+
+        toutes_les_cartes.extend(cartes)
+        print(f"  -> {len(cartes)} cartes, total : {len(toutes_les_cartes)}")
+        page += 1
+        time.sleep(0.5)
+
+    print(f"\ntotal cartes recuperees : {len(toutes_les_cartes)}")
+    return toutes_les_cartes
+
+
+# Les types en booléens sont les features catégorielles de base pour le modèle
+def extraire_types(carte):
     types_list = carte.get("types", [])
-    ligne["types"]           = ", ".join(types_list) if types_list else None
-    ligne["type_fire"]       = 1 if "Fire"      in types_list else 0
-    ligne["type_water"]      = 1 if "Water"     in types_list else 0
-    ligne["type_grass"]      = 1 if "Grass"     in types_list else 0
-    ligne["type_lightning"]  = 1 if "Lightning" in types_list else 0
-    ligne["type_psychic"]    = 1 if "Psychic"   in types_list else 0
-    ligne["type_fighting"]   = 1 if "Fighting"  in types_list else 0
-    ligne["type_darkness"]   = 1 if "Darkness"  in types_list else 0
-    ligne["type_metal"]      = 1 if "Metal"     in types_list else 0
-    ligne["type_dragon"]     = 1 if "Dragon"    in types_list else 0
-    ligne["type_fairy"]      = 1 if "Fairy"     in types_list else 0
-    ligne["type_colorless"]  = 1 if "Colorless" in types_list else 0
+    tous_les_types = [
+        "Fire", "Water", "Grass", "Lightning", "Psychic",
+        "Fighting", "Darkness", "Metal", "Dragon", "Fairy", "Colorless",
+    ]
+    features = {"types": ", ".join(types_list) if types_list else None}
+    for nom_type in tous_les_types:
+        cle = f"type_{nom_type.lower()}"
+        features[cle] = 1 if nom_type in types_list else 0
+    return features
 
-    # --- SUBTYPES ET BOOLEENS ---
-    subtypes_list = carte.get("subtypes", [])
-    ligne["subtypes"]     = ", ".join(subtypes_list) if subtypes_list else None
-    subtypes_str          = " ".join(subtypes_list).lower()
-    ligne["is_holo"]      = 1 if "holo"     in subtypes_str else 0
-    ligne["is_full_art"]  = 1 if "full art" in subtypes_str else 0
-    ligne["is_v_card"]    = 1 if any(s in subtypes_list for s in ["V", "VMAX", "VSTAR"]) else 0
-    ligne["is_ex_gx"]     = 1 if any(s in subtypes_list for s in ["EX", "GX", "ex"])    else 0
-    ligne["is_basic"]     = 1 if "Basic"   in subtypes_list else 0
-    ligne["is_stage1"]    = 1 if "Stage 1" in subtypes_list else 0
-    ligne["is_stage2"]    = 1 if "Stage 2" in subtypes_list else 0
 
-    # --- EVOLUTION ---
-    ligne["evolves_from"] = carte.get("evolvesFrom")
-    ligne["has_evolution"] = 1 if carte.get("evolvesFrom") else 0
+# TCGPlayer : hiérarchie normal > holo > reverse pour avoir une seule cible
+def extraire_prix_tcg(carte):
+    prix_bruts = carte.get("tcgplayer", {}).get("prices", {})
+    for variante in ["normal", "holofoil", "reverseHolofoil"]:
+        if variante in prix_bruts:
+            p = prix_bruts[variante]
+            return {
+                "type_prix":   variante,
+                "prix_market": p.get("market"),
+                "prix_mid":    p.get("mid"),
+                "prix_low":    p.get("low"),
+                "prix_high":   p.get("high"),
+            }
+    return {
+        "type_prix": None, "prix_market": None,
+        "prix_mid": None, "prix_low": None, "prix_high": None,
+    }
 
-    # --- COMBAT ---
-    attacks = carte.get("attacks", [])
-    ligne["nb_attaques"] = len(attacks)
 
-    max_dmg   = 0
+# Cardmarket : référence europe, avg7 et trend sont les plus stables en ML
+def extraire_prix_cardmarket(carte):
+    cm = carte.get("cardmarket", {}).get("prices", {})
+    return {
+        "prix_cm_avg1":          cm.get("avg1"),
+        "prix_cm_avg7":          cm.get("avg7"),
+        "prix_cm_avg30":         cm.get("avg30"),
+        "prix_cm_trend":         cm.get("trendPrice"),
+        "prix_cm_low":           cm.get("lowPrice"),
+        "prix_cm_reverse_trend": cm.get("reverseHoloTrend"),
+    }
+
+
+# Extrait les stats d'attaque pour garder extraire_combat sous 20 lignes
+def calculer_stats_attaques(attacks):
+    max_dmg = 0
     total_dmg = 0
     for atk in attacks:
-        dmg = atk.get("damage", "0").replace("+","").replace("x","").replace("×","")
-        try:
-            val = int(dmg)
-            total_dmg += val
-            max_dmg = max(max_dmg, val)
-        except:
-            pass
-    ligne["max_damage"]           = max_dmg if max_dmg > 0 else None
-    ligne["total_damage_attaques"] = total_dmg if total_dmg > 0 else None
-    ligne["a_attaque_100plus"]    = 1 if max_dmg >= 100 else 0
-    ligne["a_attaque_200plus"]    = 1 if max_dmg >= 200 else 0
+        val = parser_degats(atk.get("damage", "0"))
+        total_dmg += val
+        max_dmg = max(max_dmg, val)
+    couts = [atk.get("convertedEnergyCost", 0) for atk in attacks]
+    return max_dmg, total_dmg, couts
 
-    if attacks:
-        couts = [atk.get("convertedEnergyCost", 0) for atk in attacks]
-        ligne["cout_energie_moyen"]        = round(sum(couts) / len(couts), 2)
-        ligne["premier_atk_cout_energie"]  = attacks[0].get("convertedEnergyCost", 0)
-    else:
-        ligne["cout_energie_moyen"]       = None
-        ligne["premier_atk_cout_energie"] = None
 
-    # --- ABILITIES ---
+# HP, dégâts et abilities sont corrélés au prix : on les regroupe en profil combat
+def extraire_combat(carte):
+    hp_brut = carte.get("hp", "0")
+    hp = int(hp_brut) if str(hp_brut).isdigit() else None
+
+    attacks = carte.get("attacks", [])
+    max_dmg, total_dmg, couts = calculer_stats_attaques(attacks)
     abilities = carte.get("abilities", [])
-    ligne["nb_abilities"] = len(abilities)
-    ligne["has_ability"]  = 1 if len(abilities) > 0 else 0
 
-    # --- FAIBLESSES ET RESISTANCES ---
-    weaknesses  = carte.get("weaknesses", [])
-    resistances = carte.get("resistances", [])
-    ligne["faiblesse"]   = weaknesses[0].get("type")  if weaknesses  else None
-    ligne["resistance"]  = resistances[0].get("type") if resistances else None
+    premier_cout = attacks[0].get("convertedEnergyCost", 0) if attacks else None
+    cout_moyen = round(sum(couts) / len(couts), 2) if couts else None
 
-    # --- RETREAT COST ---
-    retreat = carte.get("retreatCost", [])
-    ligne["retreat_cost"] = len(retreat)
+    return {
+        "hp":                       hp,
+        "nb_attaques":              len(attacks),
+        "max_damage":               max_dmg or None,
+        "total_damage_attaques":    total_dmg or None,
+        "a_attaque_100plus":        1 if max_dmg >= 100 else 0,
+        "a_attaque_200plus":        1 if max_dmg >= 200 else 0,
+        "cout_energie_moyen":       cout_moyen,
+        "premier_atk_cout_energie": premier_cout,
+        "nb_abilities":             len(abilities),
+        "has_ability":              1 if abilities else 0,
+    }
 
-    # --- POSITION DANS LE SET ---
+
+# Métadonnées du set pour contextualiser la rareté et la position de la carte
+def extraire_infos_set(carte):
+    set_info = carte.get("set", {})
+    num_brut = carte.get("number", 0)
+    set_total = set_info.get("total", 1)
     try:
-        num   = int(carte.get("number", 0))
-        total = carte.get("set", {}).get("total", 1)
-        ligne["position_dans_set"] = round(num / total, 3)
-    except:
-        ligne["position_dans_set"] = None
+        position = round(int(num_brut) / set_total, 3)
+    except (ValueError, ZeroDivisionError):
+        position = None
+    return {
+        "set_name":          set_info.get("name"),
+        "set_serie":         set_info.get("series"),
+        "set_annee":         set_info.get("releaseDate", "")[:4],
+        "set_total_cartes":  set_info.get("total"),
+        "set_printed_total": set_info.get("printedTotal"),
+        "position_dans_set": position,
+    }
 
-    # --- LEGALITE TOURNOI ---
+
+# Subtypes en booléens : features discrètes importantes pour prédire les holo/V/ex
+def extraire_subtypes(carte):
+    subtypes_list = carte.get("subtypes", [])
+    subtypes_str = " ".join(subtypes_list).lower()
+    v_cards = ["V", "VMAX", "VSTAR"]
+    ex_gx = ["EX", "GX", "ex"]
+    return {
+        "subtypes":    ", ".join(subtypes_list) if subtypes_list else None,
+        "is_holo":     1 if "holo" in subtypes_str else 0,
+        "is_full_art": 1 if "full art" in subtypes_str else 0,
+        "is_v_card":   1 if any(s in subtypes_list for s in v_cards) else 0,
+        "is_ex_gx":    1 if any(s in subtypes_list for s in ex_gx) else 0,
+        "is_basic":    1 if "Basic" in subtypes_list else 0,
+        "is_stage1":   1 if "Stage 1" in subtypes_list else 0,
+        "is_stage2":   1 if "Stage 2" in subtypes_list else 0,
+    }
+
+
+# Identité de la carte : ce qui l'identifie dans la base, hors features ML
+def extraire_identite_carte(carte):
+    pokedex = carte.get("nationalPokedexNumbers", [])
+    pokedex_num = pokedex[0] if pokedex else None
+    weaknesses = carte.get("weaknesses", [])
+    resistances = carte.get("resistances", [])
     legalities = carte.get("legalities", {})
-    ligne["legal_standard"] = legalities.get("standard")
-    ligne["legal_expanded"] = legalities.get("expanded")
+    return {
+        "id":             carte.get("id"),
+        "nom":            carte.get("name"),
+        "supertype":      carte.get("supertype"),
+        "rarity":         carte.get("rarity"),
+        "numero":         carte.get("number"),
+        "artist":         carte.get("artist"),
+        "pokedex_number": pokedex_num,
+        "generation":     calculer_generation(pokedex_num),
+        "evolves_from":   carte.get("evolvesFrom"),
+        "has_evolution":  1 if carte.get("evolvesFrom") else 0,
+        "faiblesse":      weaknesses[0].get("type") if weaknesses else None,
+        "resistance":     resistances[0].get("type") if resistances else None,
+        "retreat_cost":   len(carte.get("retreatCost", [])),
+        "legal_standard": legalities.get("standard"),
+        "legal_expanded": legalities.get("expanded"),
+    }
 
-    # --- PRIX TCGPLAYER ---
-    prix = carte.get("tcgplayer", {}).get("prices", {})
-    if "normal" in prix:
-        p = prix["normal"]
-        ligne["type_prix"] = "normal"
-    elif "holofoil" in prix:
-        p = prix["holofoil"]
-        ligne["type_prix"] = "holofoil"
-    elif "reverseHolofoil" in prix:
-        p = prix["reverseHolofoil"]
-        ligne["type_prix"] = "reverseHolofoil"
-    else:
-        p = {}
-        ligne["type_prix"] = None
 
-    ligne["prix_market"] = p.get("market")
-    ligne["prix_mid"]    = p.get("mid")
-    ligne["prix_low"]    = p.get("low")
-    ligne["prix_high"]   = p.get("high")
+# Point d'entrée pour une carte : appelle chaque extracteur et fusionne tout
+def transformer_carte_en_ligne(carte):
+    ligne = extraire_identite_carte(carte)
+    ligne.update(extraire_infos_set(carte))
+    ligne.update(extraire_subtypes(carte))
+    ligne.update(extraire_types(carte))
+    ligne.update(extraire_combat(carte))
+    ligne.update(extraire_prix_tcg(carte))
+    ligne.update(extraire_prix_cardmarket(carte))
+    return ligne
 
-    # --- PRIX CARDMARKET ---
-    cardmarket = carte.get("cardmarket", {}).get("prices", {})
-    ligne["prix_cm_avg1"]        = cardmarket.get("avg1")
-    ligne["prix_cm_avg7"]        = cardmarket.get("avg7")
-    ligne["prix_cm_avg30"]       = cardmarket.get("avg30")
-    ligne["prix_cm_trend"]       = cardmarket.get("trendPrice")
-    ligne["prix_cm_low"]         = cardmarket.get("lowPrice")
-    ligne["prix_cm_reverse_trend"] = cardmarket.get("reverseHoloTrend")
 
-    lignes.append(ligne)
+# Sauvegarde en data/raw car c'est la donnée brute directement issue de l'API
+def sauvegarder_dataset(lignes):
+    df = pd.DataFrame(lignes)
 
-# --- SAUVEGARDE ---
-df = pd.DataFrame(lignes)
+    print("\nvoila ce qu'on a recupere :")
+    print("shape:", df.shape)
+    print(df.head())
+    print("\nvaleurs manquantes :")
+    print(df.isnull().sum())
 
-print("\nvoila ce qu'on a recupere :")
-print("shape:", df.shape)
-print(df.head())
-print("\nvaleurs manquantes :")
-print(df.isnull().sum())
+    os.makedirs("data/raw", exist_ok=True)
+    df.to_csv(CHEMIN_SAUVEGARDE, index=False)
+    print(f"\nfichier sauvegarde ! {df.shape[0]} cartes, {df.shape[1]} colonnes")
+    print("c'est bon !")
 
-os.makedirs("data/raw", exist_ok=True)
-df.to_csv("data/raw/cartes_pokemon.csv", index=False)
-print(f"\nfichier sauvegarde ! {df.shape[0]} cartes, {df.shape[1]} colonnes")
-print("c'est bon !")
+
+if __name__ == "__main__":
+    toutes_les_cartes = recuperer_toutes_les_cartes()
+    lignes = [transformer_carte_en_ligne(c) for c in toutes_les_cartes]
+    sauvegarder_dataset(lignes)
