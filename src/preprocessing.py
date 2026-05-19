@@ -36,15 +36,15 @@ def preparer_donnees():
     print("shape:", df.shape)
     print(df.head())
 
-    # on garde uniquement les cartes avec un prix réel, sans plafond
+   
     df = df[df["prix_market"] > 0].copy()
     print(f"apres filtrage : {len(df)} cartes")
 
-    # features construites
+    
     annee = pd.to_numeric(df["set_annee"], errors="coerce").fillna(2000)
     df["carte_age_ans"] = 2026 - annee
 
-    # numéro > total du set = secret rare (hors numérotation classique)
+    
     numero_num = pd.to_numeric(df["numero"], errors="coerce")
     df["est_secret_rare"] = (
         numero_num > df["set_total_cartes"]
@@ -57,7 +57,7 @@ def preparer_donnees():
     cols_types = [c for c in df.columns if c.startswith("type_") and df[c].dtype != object]
     df["nb_types"] = df[cols_types].sum(axis=1)
 
-    # encoding
+   
     df["rarity_encoded"] = df["rarity"].map(RARITY_MAP).fillna(3)
     df["est_holo_premium"] = df["is_holo"] * df["rarity_encoded"]
     df["supertype_encoded"] = pd.Categorical(df["supertype"]).codes
@@ -67,7 +67,7 @@ def preparer_donnees():
     df["a_faiblesse"] = df["faiblesse"].notna().astype(int)
     df["a_resistance"] = df["resistance"].notna().astype(int)
 
-    # valeurs manquantes
+    
     medians = {c: df[c].median() for c in ["hp", "position_dans_set", "set_total_cartes"]}
     df = df.fillna({
         **medians,
@@ -82,7 +82,7 @@ def preparer_donnees():
 if __name__ == "__main__":
     df = preparer_donnees()
 
-    # log1p pour corriger la distribution skewed du prix
+    
     y = np.log1p(df["prix_market"])
     X = df[FEATURES]
     print(f"\nX : {X.shape}  |  y  min={y.min():.2f}  max={y.max():.2f}  mean={y.mean():.2f}")
