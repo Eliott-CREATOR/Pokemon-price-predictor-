@@ -58,7 +58,6 @@ def encoder(df):
     dummies = pd.get_dummies(df["supertype"], prefix="supertype")
     df = pd.concat([df, dummies], axis=1)
 
-    # one-hot partiel : seulement les séries avec signal de prix significatif (médiane > $4)
     for serie in SERIES_SIGNIFICATIVES:
         df[f"serie_{serie}"] = (df["set_serie"] == serie).astype(int)
     df["legal_en_standard"] = (df["legal_standard"] == "Legal").astype(int)

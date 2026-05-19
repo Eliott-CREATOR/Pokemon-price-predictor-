@@ -11,7 +11,6 @@ RARITY_MAP = {
     "Rare Rainbow": 8, "Rare Shining": 8, "Rare Shiny GX": 8, "LEGEND": 8,
 }
 
-# seules les séries avec signal prix significatif (médiane > $4)
 SERIES_SIGNIFICATIVES = ["NP", "E-Card", "POP", "Other", "Autre (récent)"]
 
 # Basic/Stage1/Stage2/V/VMAX/EX-GX → colonnes correspondantes
