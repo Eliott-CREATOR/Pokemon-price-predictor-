@@ -59,7 +59,7 @@ def predire(features_dict, modele, imputer, medians):
     X = pd.DataFrame([X_base])[FEATURES]
     log_pred = modele.predict(imputer.transform(X))[0]
     prix = np.expm1(log_pred)
-    return prix, np.expm1(log_pred - 0.3), np.expm1(log_pred + 0.3)
+    return prix, np.expm1(log_pred - 0.15), np.expm1(log_pred + 0.15)
 
 
 def expliquer(f, prix, modele):
